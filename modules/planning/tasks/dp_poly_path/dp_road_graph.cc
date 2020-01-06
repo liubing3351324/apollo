@@ -56,7 +56,7 @@ DPRoadGraph::DPRoadGraph(const DpPolyPathConfig &config,
       reference_line_(reference_line_info.reference_line()),
       speed_data_(speed_data) {}
 
-bool DPRoadGraph::FindPathTunnel(
+bool DPRoadGraph::FindPathTunnel(//DP生成可通行通道，这个不仅仅是几个采样节点，而是将采样节点之间的五次曲线差值过后的s-l点序列
     const common::TrajectoryPoint &init_point,
     const std::vector<const PathObstacle *> &obstacles,
     PathData *const path_data) {
@@ -78,6 +78,7 @@ bool DPRoadGraph::FindPathTunnel(
   }
 
   std::vector<DPRoadGraphNode> min_cost_path;
+  //DP生成最优路径节点序列
   if (!GenerateMinCostPath(obstacles, &min_cost_path)) {
     AERROR << "Fail to generate graph!";
     return false;
@@ -85,14 +86,14 @@ bool DPRoadGraph::FindPathTunnel(
   std::vector<common::FrenetFramePoint> frenet_path;
   float accumulated_s = init_sl_point_.s();
   const float path_resolution = config_.path_resolution();
-
+  //遍历最优节点序列
   for (std::size_t i = 1; i < min_cost_path.size(); ++i) {
     const auto &prev_node = min_cost_path[i - 1];
     const auto &cur_node = min_cost_path[i];
 
     const float path_length = cur_node.sl_point.s() - prev_node.sl_point.s();
     float current_s = 0.0;
-    const auto &curve = cur_node.min_cost_curve;
+    const auto &curve = cur_node.min_cost_curve;//获取该节点之前的分段五次曲线
     while (current_s + path_resolution / 2.0 < path_length) {
       const float l = curve.Evaluate(0, current_s);
       const float dl = curve.Evaluate(1, current_s);
@@ -104,7 +105,7 @@ bool DPRoadGraph::FindPathTunnel(
       frenet_frame_point.set_ddl(ddl);
       frenet_path.push_back(std::move(frenet_frame_point));
       current_s += path_resolution;
-    }
+    }//将该分段五次曲线插值的s-l点
     if (i == min_cost_path.size() - 1) {
       accumulated_s += current_s;
     } else {
@@ -114,23 +115,24 @@ bool DPRoadGraph::FindPathTunnel(
   FrenetFramePath tunnel(frenet_path);
   path_data->SetReferenceLine(&reference_line_);
   path_data->SetFrenetPath(tunnel);
+  //得到最终的tunnul通道路径
   return true;
 }
 
-bool DPRoadGraph::GenerateMinCostPath(
+bool DPRoadGraph::GenerateMinCostPath(//生成最小cost的path
     const std::vector<const PathObstacle *> &obstacles,
     std::vector<DPRoadGraphNode> *min_cost_path) {
   CHECK(min_cost_path != nullptr);
 
-  std::vector<std::vector<common::SLPoint>> path_waypoints;
+  std::vector<std::vector<common::SLPoint>> path_waypoints;//建立waypoints
   if (!SamplePathWaypoints(init_point_, &path_waypoints) ||
       path_waypoints.size() < 1) {
     AERROR << "Fail to sample path waypoints! reference_line_length = "
            << reference_line_.Length();
     return false;
-  }
+  }//进行横向采样，生成s-l点阵
   path_waypoints.insert(path_waypoints.begin(),
-                        std::vector<common::SLPoint>{init_sl_point_});
+                        std::vector<common::SLPoint>{init_sl_point_});//点阵的第一排点就是车辆当前位置，只有一个点
   const auto &vehicle_config =
       common::VehicleConfigHelper::instance()->GetConfig();
 
@@ -138,19 +140,19 @@ bool DPRoadGraph::GenerateMinCostPath(
       config_, reference_line_, reference_line_info_.IsChangeLanePath(),
       obstacles, vehicle_config.vehicle_param(), speed_data_, init_sl_point_);
 
-  std::list<std::list<DPRoadGraphNode>> graph_nodes;
+  std::list<std::list<DPRoadGraphNode>> graph_nodes;//动态规划的节点
   graph_nodes.emplace_back();
-  graph_nodes.back().emplace_back(init_sl_point_, nullptr, ComparableCost());
+  graph_nodes.back().emplace_back(init_sl_point_, nullptr, ComparableCost());//从起点开始添加
   auto &front = graph_nodes.front().front();
   size_t total_level = path_waypoints.size();
 
   for (std::size_t level = 1; level < path_waypoints.size(); ++level) {
     const auto &prev_dp_nodes = graph_nodes.back();
-    const auto &level_points = path_waypoints[level];
+    const auto &level_points = path_waypoints[level];//外循环纵向遍历
 
     graph_nodes.emplace_back();
 
-    for (size_t i = 0; i < level_points.size(); ++i) {
+    for (size_t i = 0; i < level_points.size(); ++i) {//内循环横向遍历
       const auto &cur_point = level_points[i];
 
       graph_nodes.back().emplace_back(cur_point, nullptr);
@@ -162,7 +164,8 @@ bool DPRoadGraph::GenerateMinCostPath(
 
       } else {
         UpdateNode(prev_dp_nodes, level, total_level, &trajectory_cost, &front,
-                   &cur_node);
+                   &cur_node);//确定每横排最优的节点，并且确定该横排最优的前节点和与前节点的连接关系，
+                              //注意前最优节点不一定是上一排的，也有可能是起点，因为会与起点对比选更优
       }
     }
     if (FLAGS_enable_multi_thread_in_dp_poly_path) {
@@ -171,12 +174,14 @@ bool DPRoadGraph::GenerateMinCostPath(
   }
 
   // find best path
+  //
   DPRoadGraphNode fake_head;
+  //求点阵的最后一排的cost值，之前只求到倒数第二排的cost
   for (const auto &cur_dp_node : graph_nodes.back()) {
     fake_head.UpdateCost(&cur_dp_node, cur_dp_node.min_cost_curve,
                          cur_dp_node.min_cost);
   }
-
+  //从最后一排中找到min cost的节点，从后往前推即可得到节点路径序列
   const auto *min_cost_node = &fake_head;
   while (min_cost_node->min_cost_prev_node) {
     min_cost_node = min_cost_node->min_cost_prev_node;
@@ -185,7 +190,7 @@ bool DPRoadGraph::GenerateMinCostPath(
   if (min_cost_node != &graph_nodes.front().front()) {
     return false;
   }
-
+  //翻转的到正向路径节点序列
   std::reverse(min_cost_path->begin(), min_cost_path->end());
 
   for (const auto &node : *min_cost_path) {
@@ -198,6 +203,7 @@ bool DPRoadGraph::GenerateMinCostPath(
   return true;
 }
 
+//遍历该节点的前一排节点所有节点以及起点，如果有更优的，则直接将该节点与当前节点相连，即更新最优前节点序列
 void DPRoadGraph::UpdateNode(const std::list<DPRoadGraphNode> &prev_nodes,
                              const uint32_t level, const uint32_t total_level,
                              TrajectoryCost *trajectory_cost,
@@ -215,22 +221,23 @@ void DPRoadGraph::UpdateNode(const std::list<DPRoadGraphNode> &prev_nodes,
       init_dl = init_frenet_frame_point_.dl();
       init_ddl = init_frenet_frame_point_.ddl();
     }
+    //用前一个点的l的0-3阶导数和curr点的l求五次曲线，注意第二个点的1-2阶导数被设置为0
     QuinticPolynomialCurve1d curve(prev_sl_point.l(), init_dl, init_ddl,
                                    cur_point.l(), 0.0, 0.0,
                                    cur_point.s() - prev_sl_point.s());
-
     if (!IsValidCurve(curve)) {
       continue;
     }
     const auto cost =
         trajectory_cost->Calculate(curve, prev_sl_point.s(), cur_point.s(),
                                    level, total_level) +
-        prev_dp_node.min_cost;
+        prev_dp_node.min_cost;//路径cost = 该点的cost + 前面点的最小cost，注意每一个点的cost都代表了这个点之前最小路径的总cost
 
-    cur_node->UpdateCost(&prev_dp_node, curve, cost);
+    cur_node->UpdateCost(&prev_dp_node, curve, cost);//更新节点的cost，如果cost比已存储的min_cost小，则更新min_cost和对应的五次曲线curve
+
   }
-
   // try to connect the current point with the first point directly
+  //尝试将该点直接与起点连接，更新cost <=> 即比较直接连接会不会比连前一排的最优节点更好，如果是的话则可以省掉之前的节点，是一种轨迹优化；
   if (level >= 2) {
     const float init_dl = init_frenet_frame_point_.dl();
     const float init_ddl = init_frenet_frame_point_.ddl();
@@ -246,12 +253,12 @@ void DPRoadGraph::UpdateNode(const std::list<DPRoadGraphNode> &prev_nodes,
   }
 }
 
-bool DPRoadGraph::SamplePathWaypoints(
+bool DPRoadGraph::SamplePathWaypoints(//对路点采样，横向的话就是其他车道中心点及车道内的障碍物边缘点
     const common::TrajectoryPoint &init_point,
     std::vector<std::vector<common::SLPoint>> *const points) {
   CHECK_NOTNULL(points);
 
-  const float kMinSampleDistance = 40.0;
+  const float kMinSampleDistance = 40.0;//采样距离40m 或者当前速度乘以8s，选较小值
   const float total_length = std::fmin(
       init_sl_point_.s() + std::fmax(init_point.v() * 8.0, kMinSampleDistance),
       reference_line_.Length());
@@ -262,12 +269,12 @@ bool DPRoadGraph::SamplePathWaypoints(
       FLAGS_use_navigation_mode ? config_.navigator_sample_num_each_level()
                                 : config_.sample_points_num_each_level();
 
-  const bool has_sidepass = HasSidepass();
+  const bool has_sidepass = HasSidepass();//P这个函数没看
 
-  constexpr float kSamplePointLookForwardTime = 4.0;
+  constexpr float kSamplePointLookForwardTime = 4.0;//猜测纵向采样的距离是当前车速乘以4s?
   const float step_length =
       common::math::Clamp(init_point.v() * kSamplePointLookForwardTime,
-                          config_.step_length_min(), config_.step_length_max());
+                          config_.step_length_min(), config_.step_length_max());//clamp函数就是将第一参数的范围限定在第二个和第三个参数之间
 
   const float level_distance =
       (init_point.v() > FLAGS_max_stop_speed) ? step_length : step_length / 2.0;
@@ -282,7 +289,7 @@ bool DPRoadGraph::SamplePathWaypoints(
   if (status->planning_state().has_pull_over() &&
       status->planning_state().pull_over().in_pull_over()) {
     status->mutable_planning_state()->mutable_pull_over()->set_status(
-        PullOverStatus::IN_OPERATION);
+        PullOverStatus::IN_OPERATION);//pull over靠边停车
     const auto &start_point =
         status->planning_state().pull_over().start_point();
     SLPoint start_point_sl;
@@ -311,7 +318,7 @@ bool DPRoadGraph::SamplePathWaypoints(
       accumulated_s = total_length;
     }
     const float s = std::fmin(accumulated_s, total_length);
-    constexpr float kMinAllowedSampleStep = 1.0;
+    constexpr float kMinAllowedSampleStep = 1.0;//纵向最小采样距离为1m
     if (std::fabs(s - prev_s) < kMinAllowedSampleStep) {
       continue;
     }
@@ -323,13 +330,13 @@ bool DPRoadGraph::SamplePathWaypoints(
 
     constexpr float kBoundaryBuff = 0.20;
     const float eff_right_width = right_width - half_adc_width - kBoundaryBuff;
-    const float eff_left_width = left_width - half_adc_width - kBoundaryBuff;
+    const float eff_left_width = left_width - half_adc_width - kBoundaryBuff;//求该采样点左右两侧车边界离障碍物的距离
 
     // the heuristic shift of L for lane change scenarios
     const double delta_dl = 1.2 / 20.0;
     const double kChangeLaneDeltaL = common::math::Clamp(
         level_distance * (std::fabs(init_frenet_frame_point_.dl()) + delta_dl),
-        1.2, 3.5);
+        1.2, 3.5);//换道场景下横向偏移在1.2 - 3.5m之间
 
     float kDefaultUnitL = kChangeLaneDeltaL / (num_sample_per_level - 1);
     if (reference_line_info_.IsChangeLanePath() &&
@@ -356,14 +363,14 @@ bool DPRoadGraph::SamplePathWaypoints(
       }
     }
 
-    std::vector<float> sample_l;
+    std::vector<float> sample_l;//每个s点所对应的一系列横向l点
     if (reference_line_info_.IsChangeLanePath() &&
         !reference_line_info_.IsSafeToChangeLane()) {
-      sample_l.push_back(reference_line_info_.OffsetToOtherReferenceLine());
-    } else if (has_sidepass) {
+      sample_l.push_back(reference_line_info_.OffsetToOtherReferenceLine());//如果允许安全变道，则把到其他车道中心线的横向距离加入
+    } else if (has_sidepass) {//如果不允许换道，则把车道内避让的横向点放入
       // currently only left nudge is supported. Need road hard boundary for
-      // both sides
-      switch (sidepass_.type()) {
+      // both sides 目前只有左侧躲避是可以的，两侧躲避需要两侧路沿信息
+      switch (sidepass_.type()) {//根据左右躲避类型填充采样的l值
         case ObjectSidePass::LEFT: {
           sample_l.push_back(eff_left_width + config_.sidepass_distance());
           break;
@@ -385,7 +392,7 @@ bool DPRoadGraph::SamplePathWaypoints(
       common::SLPoint sl = common::util::MakeSLPoint(s, sample_l[j]);
       sample_layer_debug.add_sl_point()->CopyFrom(sl);
       level_points.push_back(std::move(sl));
-    }
+    }//将该横排的sl点加入level_points中
     if (!reference_line_info_.IsChangeLanePath() && has_sidepass) {
       auto sl_zero = common::util::MakeSLPoint(s, 0.0);
       sample_layer_debug.add_sl_point()->CopyFrom(sl_zero);
