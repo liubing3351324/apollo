@@ -107,6 +107,7 @@ TrajectoryCost::TrajectoryCost(
   }
 }
 
+//计算路径自身的cost
 ComparableCost TrajectoryCost::CalculatePathCost(
     const QuinticPolynomialCurve1d &curve, const float start_s,
     const float end_s, const uint32_t curr_level, const uint32_t total_level) {
@@ -290,6 +291,7 @@ Box2d TrajectoryCost::GetBoxFromSLPoint(const common::SLPoint &sl,
 }
 
 // TODO(All): optimize obstacle cost calculation time
+//计算分段函数曲线路径的cost，包括路径本身，静态障碍物和动态障碍物三个cost
 ComparableCost TrajectoryCost::Calculate(const QuinticPolynomialCurve1d &curve,
                                          const float start_s, const float end_s,
                                          const uint32_t curr_level,
