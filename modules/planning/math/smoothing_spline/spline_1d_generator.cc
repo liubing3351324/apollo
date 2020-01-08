@@ -66,16 +66,16 @@ Spline1dKernel* Spline1dGenerator::mutable_spline_kernel() {
 }
 
 bool Spline1dGenerator::Solve() {
-  const MatrixXd& kernel_matrix = spline_kernel_.kernel_matrix();
+  const MatrixXd& kernel_matrix = spline_kernel_.kernel_matrix();//核矩阵
   const MatrixXd& offset = spline_kernel_.offset();
-  const MatrixXd& inequality_constraint_matrix =
+  const MatrixXd& inequality_constraint_matrix =//不等式矩阵
       spline_constraint_.inequality_constraint().constraint_matrix();
   const MatrixXd& inequality_constraint_boundary =
-      spline_constraint_.inequality_constraint().constraint_boundary();
+      spline_constraint_.inequality_constraint().constraint_boundary();//不等式边界
   const MatrixXd& equality_constraint_matrix =
       spline_constraint_.equality_constraint().constraint_matrix();
   const MatrixXd& equality_constraint_boundary =
-      spline_constraint_.equality_constraint().constraint_boundary();
+      spline_constraint_.equality_constraint().constraint_boundary();//等式约束和等式边界
 
   if (kernel_matrix.rows() != kernel_matrix.cols()) {
     AERROR << "kernel_matrix.rows() [" << kernel_matrix.rows()
@@ -84,8 +84,8 @@ bool Spline1dGenerator::Solve() {
     return false;
   }
 
-  int num_param = kernel_matrix.rows();
-  int num_constraint =
+  int num_param = kernel_matrix.rows();//核矩阵行数
+  int num_constraint =                 //约束数量 = 等式约束矩阵 + 不等式约束矩阵行数
       equality_constraint_matrix.rows() + inequality_constraint_matrix.rows();
 
   bool use_hotstart =
@@ -95,7 +95,7 @@ bool Spline1dGenerator::Solve() {
 
   if (!use_hotstart) {
     sqp_solver_.reset(new ::qpOASES::SQProblem(num_param, num_constraint,
-                                               ::qpOASES::HST_UNKNOWN));
+                                               ::qpOASES::HST_UNKNOWN)); //用核矩阵行数，约束行数来重置QP问题
     ::qpOASES::Options my_options;
     my_options.enableCholeskyRefactorisation = 1;
     my_options.epsNum = FLAGS_default_active_set_eps_num;
