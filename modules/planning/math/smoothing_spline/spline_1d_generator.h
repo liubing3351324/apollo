@@ -18,28 +18,28 @@
  * @file : spline_1d_generator.h
  * @brief: piecewise_smoothing_spline (pss) generator class
  *           solve pss by qp algorithm, include adding constraint, adding
- *kernel, and solver solve
+ *kernel, and solver solve 二次规划求解spline
  **/
 
-// -- spline config
+// -- spline config 配置参数 样条的节点，阶数
 // 1. knots
 // 2. order
 //
-// -- constraint config
-// 1. init point constraint
-// 2. inequality bound constraint
+// -- constraint config 约束配置
+// 1. init point constraint 起点约束 
+// 2. inequality bound constraint 不等式约束：0-3阶导数的边界约束
 //      A. fx bound constraint
 //      B. f' bound constraint
 //      C. f'' bound constraint
 //      D. f''' bound constraint
-// 3. equality smooth constraint
+// 3. equality smooth constraint 等式约束：0-2阶的平滑约束
 //      A. Level of smoothness, linear, upto derivative,
 //         upto second order derivative
 //
 // -- kernel configs
-// 1. integrated kernel constraint;
-// 2. regularized kernel avoid sigularity;
-// 3. other customized kernel (e.g)
+// 1. integrated kernel constraint; 集成核约束
+// 2. regularized kernel avoid sigularity; 正则核避免奇异
+// 3. other customized kernel (e.g) 其他定制的核，没太懂
 //      A. kernel -- ( -s(t_g)^2 ) given end point time, find the
 //      B. kernel -- ( sum(l^2_i)) ...
 //
